@@ -1,0 +1,58 @@
+{
+  "name": "Photo Horodatée & Géolocalisée",
+  "description": "Capture photo avec horodatage et géolocalisation gravés directement sur l'image (overlay inaltérable). Idéal pour bons de livraison, constats, rapports d'intervention.",
+  "version": "1.0.0",
+  "author": "HARS Analytics",
+  "url": "https://jotform-widget-photo-horodatee.pages.dev/",
+  "preview": "https://jotform-widget-photo-horodatee.pages.dev/preview.png",
+  "settings": [
+    {
+      "name": "maxPhotos",
+      "label": "Nombre max de photos",
+      "type": "text",
+      "defaultValue": "3",
+      "hint": "Entre 1 et 10 (défaut : 3)"
+    },
+    {
+      "name": "brandingText",
+      "label": "Texte de branding sur l'overlay",
+      "type": "text",
+      "defaultValue": "HARS Analytics — Horodatage certifié",
+      "hint": "Affiché en bas de chaque photo"
+    },
+    {
+      "name": "imageQuality",
+      "label": "Qualité JPEG (0.5 à 1.0)",
+      "type": "text",
+      "defaultValue": "0.85",
+      "hint": "0.85 = bon équilibre qualité/poids"
+    },
+    {
+      "name": "maxWidth",
+      "label": "Largeur max en pixels",
+      "type": "text",
+      "defaultValue": "1920",
+      "hint": "Les images sont redimensionnées avant traitement"
+    },
+    {
+      "name": "requireGPS",
+      "label": "GPS obligatoire",
+      "type": "dropdown",
+      "defaultValue": "false",
+      "options": [
+        { "value": "false", "label": "Non — fallback si GPS indisponible" },
+        { "value": "true",  "label": "Oui — bloque si GPS indisponible" }
+      ]
+    },
+    {
+      "name": "overlayPosition",
+      "label": "Position de l'overlay",
+      "type": "dropdown",
+      "defaultValue": "bottom",
+      "options": [
+        { "value": "bottom", "label": "En bas (défaut)" },
+        { "value": "top",    "label": "En haut" }
+      ]
+    }
+  ]
+}

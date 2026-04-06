@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Photo Horodatée — HARS Analytics</title>
+  <script src="https://cdn.jotfor.ms/s/umd/latest/for-widgets-embed.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      background: #ffffff;
+      color: #1e293b;
+      padding: 12px;
+      min-height: 100vh;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── GPS status bar ── */
+    #gps-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      transition: all 0.3s;
+    }
+    #gps-status.acquiring {
+      background: #fef9c3;
+      color: #854d0e;
+      border: 1px solid #fde047;
+    }
+    #gps-status.acquired {
+      background: #f0fdf4;
+      color: #15803d;
+      border: 1px solid #86efac;
+    }
+    #gps-status.error {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fca5a5;
+    }
+    #gps-status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    #gps-status.acquiring .dot {
+      background: #eab308;
+      animation: pulse 1.2s infinite;
+    }
+    #gps-status.acquired .dot { background: #22c55e; }
+    #gps-status.error    .dot { background: #ef4444; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ── Counter ── */
+    #counter {
+      font-size: 12px;
+      color: #64748b;
+      text-align: right;
+      margin-bottom: 10px;
+    }
+    #counter span { font-weight: 600; color: #2d1b69; }
+
+    /* ── Capture button ── */
+    #btn-capture {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 16px;
+      background: #2d1b69;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      margin-bottom: 14px;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #btn-capture:active { background: #7c3aed; transform: scale(0.98); }
+    #btn-capture:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+      transform: none;
+    }
+    #btn-capture svg { width: 22px; height: 22px; flex-shrink: 0; }
+
+    /* Hidden file input */
+    #file-input { display: none; }
+
+    /* ── Processing overlay ── */
+    #processing {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      color: #64748b;
+    }
+    #processing.visible { display: flex; }
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #e2e8f0;
+      border-top-color: #2d1b69;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Photo grid ── */
+    #photos-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .photo-card {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      aspect-ratio: 4/3;
+      background: #f1f5f9;
+    }
+    .photo-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .photo-card .delete-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 26px;
+      height: 26px;
+      background: rgba(239, 68, 68, 0.9);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .photo-card .photo-index {
+      position: absolute;
+      bottom: 6px;
+      left: 6px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* ── Error message ── */
+    #error-msg {
+      display: none;
+      padding: 10px 12px;
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #b91c1c;
+      margin-top: 10px;
+    }
+    #error-msg.visible { display: block; }
+
+    /* ── Empty state ── */
+    #empty-state {
+      text-align: center;
+      padding: 24px 16px;
+      color: #94a3b8;
+      font-size: 13px;
+      border: 2px dashed #e2e8f0;
+      border-radius: 8px;
+    }
+    #empty-state svg {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 10px;
+      display: block;
+      opacity: 0.4;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- GPS Status -->
+  <div id="gps-status" class="acquiring">
+    <span class="dot"></span>
+    <span id="gps-text">Acquisition GPS en cours…</span>
+  </div>
+
+  <!-- Counter -->
+  <div id="counter"><span id="count-current">0</span> / <span id="count-max">3</span> photos</div>
+
+  <!-- Capture Button -->
+  <button id="btn-capture" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+    Prendre une photo
+  </button>
+
+  <!-- Hidden file input -->
+  <input type="file" id="file-input" accept="image/*" capture="environment" multiple>
+
+  <!-- Processing indicator -->
+  <div id="processing">
+    <div class="spinner"></div>
+    <span>Traitement en cours…</span>
+  </div>
+
+  <!-- Photos grid / empty state -->
+  <div id="photos-grid"></div>
+  <div id="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+    Aucune photo capturée
+  </div>
+
+  <!-- Error message -->
+  <div id="error-msg"></div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    // ─── État global ───────────────────────────────────────────────
+    let settings = {
+      maxPhotos:       3,
+      brandingText:    'HARS Analytics — Horodatage certifié',
+      imageQuality:    0.85,
+      maxWidth:        1920,
+      requireGPS:      false,
+      overlayPosition: 'bottom',
+    };
+
+    let gpsPosition = null;   // { latitude, longitude, accuracy }
+    let gpsWatchId  = null;
+    let photos      = [];     // [{ filename, base64, timestamp, lat, lon, previewUrl }]
+    let isProcessing = false;
+
+    // ─── Éléments DOM ─────────────────────────────────────────────
+    const elGpsStatus   = document.getElementById('gps-status');
+    const elGpsText     = document.getElementById('gps-text');
+    const elCountCur    = document.getElementById('count-current');
+    const elCountMax    = document.getElementById('count-max');
+    const elBtnCapture  = document.getElementById('btn-capture');
+    const elFileInput   = document.getElementById('file-input');
+    const elProcessing  = document.getElementById('processing');
+    const elGrid        = document.getElementById('photos-grid');
+    const elEmpty       = document.getElementById('empty-state');
+    const elError       = document.getElementById('error-msg');
+
+    // ─── GPS ──────────────────────────────────────────────────────
+    function startGPS() {
+      if (!navigator.geolocation) {
+        setGPSStatus('error', 'GPS non supporté par ce navigateur');
+        return;
+      }
+      setGPSStatus('acquiring', 'Acquisition GPS en cours…');
+      gpsWatchId = navigator.geolocation.watchPosition(
+        function (pos) {
+          gpsPosition = {
+            latitude:  pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy:  Math.round(pos.coords.accuracy),
+          };
+          setGPSStatus('acquired',
+            'GPS · ' + gpsPosition.latitude.toFixed(5) + ', ' + gpsPosition.longitude.toFixed(5) +
+            ' (±' + gpsPosition.accuracy + 'm)'
+          );
+        },
+        function (err) {
+          setGPSStatus('error', 'GPS indisponible — la photo sera quand même capturée');
+        },
+        { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
+      );
+    }
+
+    function stopGPS() {
+      if (gpsWatchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+      }
+    }
+
+    function setGPSStatus(state, text) {
+      elGpsStatus.className = state;
+      elGpsText.textContent = text;
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────
+    function zeroPad(n) { return String(n).padStart(2, '0'); }
+
+    function formatDatetime(d) {
+      return zeroPad(d.getDate()) + '/' +
+             zeroPad(d.getMonth() + 1) + '/' +
+             d.getFullYear() + ' — ' +
+             zeroPad(d.getHours()) + ':' +
+             zeroPad(d.getMinutes()) + ':' +
+             zeroPad(d.getSeconds());
+    }
+
+    function loadImage(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          var img = new Image();
+          img.onload = function () { resolve(img); };
+          img.onerror = reject;
+          img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function showError(msg) {
+      elError.textContent = msg;
+      elError.classList.add('visible');
+      setTimeout(function () { elError.classList.remove('visible'); }, 5000);
+    }
+
+    function updateCounter() {
+      elCountCur.textContent = photos.length;
+      elCountMax.textContent = settings.maxPhotos;
+      elBtnCapture.disabled = photos.length >= settings.maxPhotos || isProcessing;
+    }
+
+    function updateGrid() {
+      if (photos.length === 0) {
+        elEmpty.style.display = '';
+        elGrid.innerHTML = '';
+        return;
+      }
+      elEmpty.style.display = 'none';
+      elGrid.innerHTML = '';
+      photos.forEach(function (photo, i) {
+        var card = document.createElement('div');
+        card.className = 'photo-card';
+
+        var img = document.createElement('img');
+        img.src = photo.previewUrl;
+        img.alt = 'Photo ' + (i + 1);
+
+        var delBtn = document.createElement('button');
+        delBtn.className = 'delete-btn';
+        delBtn.innerHTML = '✕';
+        delBtn.setAttribute('aria-label', 'Supprimer la photo ' + (i + 1));
+        delBtn.addEventListener('click', function () { deletePhoto(i); });
+
+        var idx = document.createElement('span');
+        idx.className = 'photo-index';
+        idx.textContent = (i + 1) + ' / ' + photos.length;
+
+        card.appendChild(img);
+        card.appendChild(delBtn);
+        card.appendChild(idx);
+        elGrid.appendChild(card);
+      });
+    }
+
+    function deletePhoto(index) {
+      // Libérer l'URL blob si utilisée
+      if (photos[index].blobUrl) {
+        URL.revokeObjectURL(photos[index].blobUrl);
+      }
+      photos.splice(index, 1);
+      updateCounter();
+      updateGrid();
+      notifyJotForm();
+    }
+
+    function notifyJotForm() {
+      try {
+        var value = photos.length > 0
+          ? JSON.stringify(photos.map(function (p) {
+              return {
+                filename:  p.filename,
+                base64:    p.base64,
+                timestamp: p.timestamp,
+                lat:       p.lat,
+                lon:       p.lon,
+              };
+            }))
+          : '';
+        JFCustomWidget.sendData({ value: value });
+      } catch (e) {
+        // Hors contexte JotForm (test standalone)
+        console.log('[Widget] sendData:', photos.length + ' photo(s)');
+      }
+    }
+
+    // ─── Traitement canvas ────────────────────────────────────────
+    async function processPhoto(file, captureTime) {
+      var img = await loadImage(file);
+
+      // Redimensionnement
+      var scale  = Math.min(1, settings.maxWidth / img.naturalWidth);
+      var canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.naturalWidth  * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      var ctx = canvas.getContext('2d');
+
+      // Dessiner l'image
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // ── Overlay ──
+      var overlayH = Math.max(60, Math.round(canvas.height * 0.12));
+      var y = settings.overlayPosition === 'top' ? 0 : canvas.height - overlayH;
+
+      // Bandeau gradient semi-transparent
+      var grad = ctx.createLinearGradient(0, y, 0, y + overlayH);
+      if (settings.overlayPosition === 'top') {
+        grad.addColorStop(0, 'rgba(0,0,0,0.80)');
+        grad.addColorStop(1, 'rgba(0,0,0,0.50)');
+      } else {
+        grad.addColorStop(0, 'rgba(0,0,0,0.50)');
+        grad.addColorStop(1, 'rgba(0,0,0,0.82)');
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, y, canvas.width, overlayH);
+
+      // Ligne de séparation colorée
+      ctx.fillStyle = '#7c3aed';
+      var sepY = settings.overlayPosition === 'top' ? y + overlayH - 2 : y;
+      ctx.fillRect(0, sepY, canvas.width, 2);
+
+      // Texte
+      var fontSize   = Math.max(12, Math.round(canvas.width * 0.026));
+      var lineHeight = Math.round(fontSize * 1.45);
+      var padding    = Math.round(canvas.width * 0.018);
+
+      var lat = gpsPosition ? gpsPosition.latitude.toFixed(6)  : null;
+      var lon = gpsPosition ? gpsPosition.longitude.toFixed(6) : null;
+      var gpsStr = gpsPosition
+        ? '📍 Lat: ' + lat + '  Lon: ' + lon
+        : '📍 GPS non disponible';
+      var dateStr  = '📅 ' + formatDatetime(captureTime);
+      var brandStr = '🔒 ' + settings.brandingText;
+
+      // Ombre portée pour lisibilité
+      ctx.shadowColor   = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur    = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+
+      var textY0;
+      if (settings.overlayPosition === 'top') {
+        textY0 = y + lineHeight;
+      } else {
+        // Aligner le bloc en bas
+        textY0 = y + (overlayH - lineHeight * 2.8) + lineHeight;
+      }
+
+      // Ligne 1 — date/heure
+      ctx.font      = 'bold ' + fontSize + 'px Arial, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(dateStr, padding, textY0);
+
+      // Ligne 2 — GPS
+      ctx.font      = 'bold ' + fontSize + 'px Arial, sans-serif';
+      ctx.fillStyle = gpsPosition ? '#86efac' : '#fca5a5';
+      ctx.fillText(gpsStr, padding, textY0 + lineHeight);
+
+      // Ligne 3 — branding (plus petit, discret)
+      ctx.shadowBlur = 2;
+      ctx.font       = (Math.round(fontSize * 0.75)) + 'px Arial, sans-serif';
+      ctx.fillStyle  = 'rgba(255,255,255,0.65)';
+      ctx.fillText(brandStr, padding, textY0 + lineHeight * 2.1);
+
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur  = 0;
+
+      return canvas.toDataURL('image/jpeg', settings.imageQuality);
+    }
+
+    // ─── Gestion des fichiers sélectionnés ────────────────────────
+    elFileInput.addEventListener('change', async function (e) {
+      var files = Array.from(e.target.files || []);
+      if (!files.length) return;
+
+      // Vérifier la limite
+      var remaining = settings.maxPhotos - photos.length;
+      if (remaining <= 0) {
+        showError('Limite de ' + settings.maxPhotos + ' photo(s) atteinte.');
+        elFileInput.value = '';
+        return;
+      }
+      files = files.slice(0, remaining);
+
+      // Vérifier GPS obligatoire
+      if (settings.requireGPS && !gpsPosition) {
+        showError('La géolocalisation est requise. Veuillez activer le GPS et réessayer.');
+        elFileInput.value = '';
+        return;
+      }
+
+      isProcessing = true;
+      elBtnCapture.disabled = true;
+      elProcessing.classList.add('visible');
+
+      for (var i = 0; i < files.length; i++) {
+        var file        = files[i];
+        var captureTime = new Date();
+
+        try {
+          var base64 = await processPhoto(file, captureTime);
+
+          photos.push({
+            filename:  'photo_' + Date.now() + '_' + (i + 1) + '.jpg',
+            base64:    base64,
+            previewUrl: base64,
+            timestamp: captureTime.toISOString(),
+            lat:       gpsPosition ? gpsPosition.latitude  : null,
+            lon:       gpsPosition ? gpsPosition.longitude : null,
+          });
+        } catch (err) {
+          console.error('[Widget] Erreur traitement photo:', err);
+          showError('Erreur lors du traitement de la photo. Veuillez réessayer.');
+        }
+      }
+
+      isProcessing = false;
+      elProcessing.classList.remove('visible');
+      elFileInput.value = '';
+
+      updateCounter();
+      updateGrid();
+      notifyJotForm();
+    });
+
+    // ─── Clic bouton capture ──────────────────────────────────────
+    elBtnCapture.addEventListener('click', function () {
+      if (photos.length >= settings.maxPhotos) {
+        showError('Limite de ' + settings.maxPhotos + ' photo(s) atteinte.');
+        return;
+      }
+      elFileInput.click();
+    });
+
+    // ─── Initialisation ───────────────────────────────────────────
+    function init(s) {
+      // Appliquer les settings
+      settings.maxPhotos       = parseInt(s.maxPhotos,    10) || 3;
+      settings.brandingText    = s.brandingText            || 'HARS Analytics — Horodatage certifié';
+      settings.imageQuality    = parseFloat(s.imageQuality)  || 0.85;
+      settings.maxWidth        = parseInt(s.maxWidth,     10) || 1920;
+      settings.requireGPS      = s.requireGPS === 'true'      || s.requireGPS === true;
+      settings.overlayPosition = s.overlayPosition === 'top'  ? 'top' : 'bottom';
+
+      // Clamp
+      settings.maxPhotos    = Math.max(1, Math.min(10, settings.maxPhotos));
+      settings.imageQuality = Math.max(0.5, Math.min(1, settings.imageQuality));
+      settings.maxWidth     = Math.max(800, Math.min(4000, settings.maxWidth));
+
+      updateCounter();
+      updateGrid();
+      startGPS();
+    }
+
+    // ─── Intégration JotForm ──────────────────────────────────────
+    if (typeof JFCustomWidget !== 'undefined') {
+      JFCustomWidget.subscribe('ready', function () {
+        var s = {
+          maxPhotos:       JFCustomWidget.getWidgetSetting('maxPhotos'),
+          brandingText:    JFCustomWidget.getWidgetSetting('brandingText'),
+          imageQuality:    JFCustomWidget.getWidgetSetting('imageQuality'),
+          maxWidth:        JFCustomWidget.getWidgetSetting('maxWidth'),
+          requireGPS:      JFCustomWidget.getWidgetSetting('requireGPS'),
+          overlayPosition: JFCustomWidget.getWidgetSetting('overlayPosition'),
+        };
+        init(s);
+      });
+
+      JFCustomWidget.subscribe('submit', function () {
+        if (settings.requireGPS && photos.some(function (p) { return !p.lat; })) {
+          JFCustomWidget.sendSubmit({ valid: false, value: '' });
+          return;
+        }
+        var value = photos.length > 0
+          ? JSON.stringify(photos.map(function (p) {
+              return {
+                filename:  p.filename,
+                base64:    p.base64,
+                timestamp: p.timestamp,
+                lat:       p.lat,
+                lon:       p.lon,
+              };
+            }))
+          : '';
+        JFCustomWidget.sendSubmit({
+          valid: photos.length > 0,
+          value: value,
+        });
+        stopGPS();
+      });
+    } else {
+      // Mode standalone (test hors JotForm)
+      console.log('[Widget] Standalone mode — JFCustomWidget non détecté');
+      init({});
+    }
+
+  }());
+  </script>
+</body>
+</html>
