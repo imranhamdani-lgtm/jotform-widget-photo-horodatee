@@ -449,6 +449,7 @@
         elProcessing.classList.remove('visible');
         updateCounter();
         updateGrid();
+        sendDataToJotForm();
 
       }).catch(function (err) {
         console.error('[Widget] processPhoto error:', err);
@@ -482,53 +483,67 @@
     }
 
     // ─── Intégration JotForm ──────────────────────────────────────
-    if (typeof JFCustomWidget !== 'undefined') {
-
-      JFCustomWidget.subscribe('ready', function () {
-        init({
-          maxPhotos:       JFCustomWidget.getWidgetSetting('maxPhotos'),
-          brandingText:    JFCustomWidget.getWidgetSetting('brandingText'),
-          imageQuality:    JFCustomWidget.getWidgetSetting('imageQuality'),
-          maxWidth:        JFCustomWidget.getWidgetSetting('maxWidth'),
-          requireGPS:      JFCustomWidget.getWidgetSetting('requireGPS'),
-          overlayPosition: JFCustomWidget.getWidgetSetting('overlayPosition'),
-        });
-      });
-
-      JFCustomWidget.subscribe('submit', function () {
-        // GPS obligatoire non disponible
-        if (settings.requireGPS && !gpsPosition) {
-          JFCustomWidget.sendSubmit({ valid: false, value: '' });
-          return;
-        }
-
-        // Pas de photo — valid:true, JotForm gère le "required" lui-même
-        if (photos.length === 0) {
-          JFCustomWidget.sendSubmit({ valid: true, value: '' });
-          stopGPS();
-          return;
-        }
-
-        // base64 déjà calculé — réponse synchrone immédiate
-        var data = photos.map(function (p) {
+    function buildValue() {
+      if (photos.length === 0) return '';
+      try {
+        return JSON.stringify(photos.map(function (p) {
           return {
             filename:  p.filename,
-            base64:    p.base64,
+            base64:    p.base64 || '',
             timestamp: p.timestamp,
             lat:       p.lat,
             lon:       p.lon,
           };
-        });
+        }));
+      } catch (e) {
+        console.error('[Widget] buildValue error:', e);
+        return '';
+      }
+    }
 
-        JFCustomWidget.sendSubmit({
-          valid: true,
-          value: JSON.stringify(data),
-        });
+    function sendDataToJotForm() {
+      try {
+        JFCustomWidget.sendData({ value: buildValue() });
+      } catch (e) { /* hors contexte JotForm */ }
+    }
+
+    if (typeof JFCustomWidget !== 'undefined') {
+
+      JFCustomWidget.subscribe('ready', function () {
+        try {
+          init({
+            maxPhotos:       JFCustomWidget.getWidgetSetting('maxPhotos'),
+            brandingText:    JFCustomWidget.getWidgetSetting('brandingText'),
+            imageQuality:    JFCustomWidget.getWidgetSetting('imageQuality'),
+            maxWidth:        JFCustomWidget.getWidgetSetting('maxWidth'),
+            requireGPS:      JFCustomWidget.getWidgetSetting('requireGPS'),
+            overlayPosition: JFCustomWidget.getWidgetSetting('overlayPosition'),
+          });
+        } catch (e) {
+          init({});
+        }
+        // Signaler au widget qu'il est prêt avec une valeur vide
+        JFCustomWidget.sendData({ value: '' });
+      });
+
+      JFCustomWidget.subscribe('submit', function () {
+        // Toujours entourer d'un try-catch pour garantir que sendSubmit est appelé
+        try {
+          if (settings.requireGPS && !gpsPosition) {
+            JFCustomWidget.sendSubmit({ valid: false, value: '' });
+            return;
+          }
+          var value = buildValue();
+          JFCustomWidget.sendSubmit({ valid: true, value: value });
+        } catch (e) {
+          console.error('[Widget] submit error:', e);
+          // Dernier recours — débloquer JotForm quoi qu'il arrive
+          try { JFCustomWidget.sendSubmit({ valid: true, value: '' }); } catch (e2) {}
+        }
         stopGPS();
       });
 
     } else {
-      // Mode standalone
       console.log('[Widget] Mode standalone');
       init({});
     }
