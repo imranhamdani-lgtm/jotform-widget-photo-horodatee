@@ -275,10 +275,6 @@
     }
 
     function deletePhoto(index) {
-      var photo = photos[index];
-      if (photo) {
-        URL.revokeObjectURL(photo.previewBlobUrl);
-      }
       photos.splice(index, 1);
       updateCounter();
       updateGrid();
@@ -404,7 +400,7 @@
       });
     }
 
-    // ─── Conversion Blob → base64 (uniquement au submit) ─────────
+    // ─── Conversion Blob → base64 ─────────────────────────────────
     function blobToBase64(blob) {
       return new Promise(function (resolve, reject) {
         var reader = new FileReader();
@@ -417,7 +413,7 @@
     // ─── Gestion de la sélection fichier ─────────────────────────
     elFileInput.addEventListener('change', function (e) {
       var file = e.target.files && e.target.files[0];
-      elFileInput.value = ''; // reset immédiatement pour permettre re-sélection
+      elFileInput.value = '';
       if (!file) return;
 
       if (photos.length >= settings.maxPhotos) {
@@ -434,17 +430,19 @@
       elBtnCapture.disabled = true;
       elProcessing.classList.add('visible');
 
+      // Traitement canvas → blob → base64
+      // On convertit en base64 ICI (pas au submit) pour que sendSubmit soit synchrone
       processPhoto(file, captureTime).then(function (blob) {
-        // Créer une URL blob légère pour la preview
-        var previewBlobUrl = URL.createObjectURL(blob);
-
+        return blobToBase64(blob);
+      }).then(function (base64) {
+        // Blob libéré après conversion — on ne stocke que la string base64
         photos.push({
-          filename:      'photo_' + Date.now() + '.jpg',
-          previewBlobUrl: previewBlobUrl,
-          blob:          blob,          // stocké en mémoire, pas en base64
-          timestamp:     captureTime.toISOString(),
-          lat:           gpsPosition ? gpsPosition.latitude  : null,
-          lon:           gpsPosition ? gpsPosition.longitude : null,
+          filename:       'photo_' + Date.now() + '.jpg',
+          previewBlobUrl: base64,   // réutiliser la même string pour la preview
+          base64:         base64,
+          timestamp:      captureTime.toISOString(),
+          lat:            gpsPosition ? gpsPosition.latitude  : null,
+          lon:            gpsPosition ? gpsPosition.longitude : null,
         });
 
         isProcessing = false;
@@ -498,45 +496,35 @@
       });
 
       JFCustomWidget.subscribe('submit', function () {
-        // Vérification GPS obligatoire
+        // GPS obligatoire non disponible
         if (settings.requireGPS && !gpsPosition) {
           JFCustomWidget.sendSubmit({ valid: false, value: '' });
           return;
         }
 
-        // Si aucune photo : laisser JotForm gérer le champ requis
-        // On envoie toujours valid:true ici — le "required" est géré par JotForm
+        // Pas de photo — valid:true, JotForm gère le "required" lui-même
         if (photos.length === 0) {
           JFCustomWidget.sendSubmit({ valid: true, value: '' });
           stopGPS();
           return;
         }
 
-        // Convertir tous les blobs en base64 au moment du submit seulement
-        var conversions = photos.map(function (p) {
-          return blobToBase64(p.blob).then(function (b64) {
-            return {
-              filename:  p.filename,
-              base64:    b64,
-              timestamp: p.timestamp,
-              lat:       p.lat,
-              lon:       p.lon,
-            };
-          });
+        // base64 déjà calculé — réponse synchrone immédiate
+        var data = photos.map(function (p) {
+          return {
+            filename:  p.filename,
+            base64:    p.base64,
+            timestamp: p.timestamp,
+            lat:       p.lat,
+            lon:       p.lon,
+          };
         });
 
-        Promise.all(conversions).then(function (data) {
-          JFCustomWidget.sendSubmit({
-            valid: true,
-            value: JSON.stringify(data),
-          });
-          stopGPS();
-        }).catch(function (err) {
-          console.error('[Widget] submit conversion error:', err);
-          // On laisse passer même en cas d'erreur de conversion
-          JFCustomWidget.sendSubmit({ valid: true, value: '' });
-          stopGPS();
+        JFCustomWidget.sendSubmit({
+          valid: true,
+          value: JSON.stringify(data),
         });
+        stopGPS();
       });
 
     } else {
