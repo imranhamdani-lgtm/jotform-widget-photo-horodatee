@@ -468,6 +468,9 @@
       elFileInput.click();
     });
 
+    // Arrêter le GPS quand la page est déchargée
+    window.addEventListener('beforeunload', stopGPS);
+
     // ─── Initialisation ───────────────────────────────────────────
     function init(s) {
       settings.maxPhotos       = Math.max(1, Math.min(10, parseInt(s.maxPhotos, 10) || 3));
@@ -522,26 +525,14 @@
         } catch (e) {
           init({});
         }
-        // Signaler au widget qu'il est prêt avec une valeur vide
+        // Envoyer valeur vide initiale — JotForm stocke la dernière valeur sendData
         JFCustomWidget.sendData({ value: '' });
       });
 
-      JFCustomWidget.subscribe('submit', function () {
-        // Toujours entourer d'un try-catch pour garantir que sendSubmit est appelé
-        try {
-          if (settings.requireGPS && !gpsPosition) {
-            JFCustomWidget.sendSubmit({ valid: false, value: '' });
-            return;
-          }
-          var value = buildValue();
-          JFCustomWidget.sendSubmit({ valid: true, value: value });
-        } catch (e) {
-          console.error('[Widget] submit error:', e);
-          // Dernier recours — débloquer JotForm quoi qu'il arrive
-          try { JFCustomWidget.sendSubmit({ valid: true, value: '' }); } catch (e2) {}
-        }
-        stopGPS();
-      });
+      // NE PAS s'abonner à "submit" — le SDK a son propre handler par défaut
+      // qui envoie sendSubmit({initial:true, data:false, valid:true}).
+      // Si on ajoute un 2e handler, deux sendSubmit s'envoient et JotForm bloque.
+      // JotForm lit automatiquement la dernière valeur passée via sendData.
 
     } else {
       console.log('[Widget] Mode standalone');
