@@ -92,6 +92,15 @@
       font-size: 10px; font-weight: 600;
       padding: 2px 6px; border-radius: 4px;
     }
+    .photo-card .upload-overlay {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .photo-card .upload-overlay .spinner {
+      border-color: rgba(255,255,255,0.3);
+      border-top-color: #fff;
+    }
 
     #error-msg {
       display: none; padding: 10px 12px;
@@ -130,7 +139,7 @@
 
   <input type="file" id="file-input" accept="image/*" capture="environment">
 
-  <div id="processing"><div class="spinner"></div><span>Traitement en cours…</span></div>
+  <div id="processing"><div class="spinner"></div><span id="processing-text">Traitement en cours…</span></div>
 
   <div id="photos-grid"></div>
   <div id="empty-state">
@@ -152,9 +161,10 @@
       maxPhotos:       3,
       brandingText:    'HARS Analytics — Horodatage certifié',
       imageQuality:    0.82,
-      maxWidth:        1280,   // réduit pour économiser la mémoire
+      maxWidth:        1280,
       requireGPS:      false,
       overlayPosition: 'bottom',
+      uploadWorkerUrl: '',   // URL du Cloudflare Worker (vide = fallback base64)
     };
 
     // ─── État ─────────────────────────────────────────────────────
@@ -163,21 +173,23 @@
     var isProcessing = false;
 
     // Chaque entrée :
-    // { filename, previewBlobUrl, blob, timestamp, lat, lon }
-    // Le base64 N'est PAS stocké — il est calculé uniquement au submit
+    // { filename, previewUrl, url, base64, timestamp, lat, lon }
+    // - url    : URL Supabase (si Worker configuré)
+    // - base64 : fallback si pas de Worker
     var photos = [];
 
     // ─── DOM ──────────────────────────────────────────────────────
-    var elGpsStatus  = document.getElementById('gps-status');
-    var elGpsText    = document.getElementById('gps-text');
-    var elCountCur   = document.getElementById('count-current');
-    var elCountMax   = document.getElementById('count-max');
-    var elBtnCapture = document.getElementById('btn-capture');
-    var elFileInput  = document.getElementById('file-input');
-    var elProcessing = document.getElementById('processing');
-    var elGrid       = document.getElementById('photos-grid');
-    var elEmpty      = document.getElementById('empty-state');
-    var elError      = document.getElementById('error-msg');
+    var elGpsStatus     = document.getElementById('gps-status');
+    var elGpsText       = document.getElementById('gps-text');
+    var elCountCur      = document.getElementById('count-current');
+    var elCountMax      = document.getElementById('count-max');
+    var elBtnCapture    = document.getElementById('btn-capture');
+    var elFileInput     = document.getElementById('file-input');
+    var elProcessing    = document.getElementById('processing');
+    var elProcessingTxt = document.getElementById('processing-text');
+    var elGrid          = document.getElementById('photos-grid');
+    var elEmpty         = document.getElementById('empty-state');
+    var elError         = document.getElementById('error-msg');
 
     // ─── GPS ──────────────────────────────────────────────────────
     function startGPS() {
@@ -229,7 +241,7 @@
     function showError(msg) {
       elError.textContent = msg;
       elError.classList.add('visible');
-      setTimeout(function () { elError.classList.remove('visible'); }, 5000);
+      setTimeout(function () { elError.classList.remove('visible'); }, 6000);
     }
 
     function updateCounter() {
@@ -251,14 +263,13 @@
         card.className = 'photo-card';
 
         var img    = document.createElement('img');
-        img.src    = photo.previewBlobUrl;
+        img.src    = photo.previewUrl;
         img.alt    = 'Photo ' + (i + 1);
 
         var delBtn = document.createElement('button');
         delBtn.className = 'delete-btn';
         delBtn.textContent = '✕';
         delBtn.setAttribute('aria-label', 'Supprimer photo ' + (i + 1));
-        // Capture de l'index via closure
         (function (idx) {
           delBtn.addEventListener('click', function () { deletePhoto(idx); });
         }(i));
@@ -268,6 +279,17 @@
         idxLabel.textContent = (i + 1) + ' / ' + photos.length;
 
         card.appendChild(img);
+
+        // Si upload en cours (url === null), afficher spinner sur la carte
+        if (photo.uploading) {
+          var overlay = document.createElement('div');
+          overlay.className = 'upload-overlay';
+          var sp = document.createElement('div');
+          sp.className = 'spinner';
+          overlay.appendChild(sp);
+          card.appendChild(overlay);
+        }
+
         card.appendChild(delBtn);
         card.appendChild(idxLabel);
         elGrid.appendChild(card);
@@ -278,15 +300,15 @@
       photos.splice(index, 1);
       updateCounter();
       updateGrid();
+      sendDataToJotForm();
     }
 
-    // ─── Chargement image via blob URL (évite FileReader en mémoire) ─
+    // ─── Chargement image via blob URL ────────────────────────────
     function loadImageFromBlob(blob) {
       return new Promise(function (resolve, reject) {
         var blobUrl = URL.createObjectURL(blob);
         var img     = new Image();
         img.onload = function () {
-          // On libère l'URL objet dès que l'image est chargée dans le contexte GPU
           URL.revokeObjectURL(blobUrl);
           resolve(img);
         };
@@ -303,7 +325,6 @@
       var overlayH = Math.max(56, Math.round(canvasH * 0.11));
       var y        = settings.overlayPosition === 'top' ? 0 : canvasH - overlayH;
 
-      // Gradient semi-transparent
       var grad = ctx.createLinearGradient(0, y, 0, y + overlayH);
       if (settings.overlayPosition === 'top') {
         grad.addColorStop(0, 'rgba(0,0,0,0.82)');
@@ -315,14 +336,12 @@
       ctx.fillStyle = grad;
       ctx.fillRect(0, y, canvasW, overlayH);
 
-      // Barre colorée HARS
       ctx.fillStyle = '#7c3aed';
       ctx.fillRect(0, settings.overlayPosition === 'top' ? y + overlayH - 2 : y, canvasW, 2);
 
-      // Typographie proportionnelle
-      var fontSize   = Math.max(11, Math.round(canvasW * 0.024));
-      var lineH      = Math.round(fontSize * 1.42);
-      var pad        = Math.round(canvasW * 0.016);
+      var fontSize = Math.max(11, Math.round(canvasW * 0.024));
+      var lineH    = Math.round(fontSize * 1.42);
+      var pad      = Math.round(canvasW * 0.016);
 
       var dateStr  = '\uD83D\uDCC5 ' + formatDatetime(captureTime);
       var gpsStr   = gps
@@ -330,7 +349,6 @@
         : '\uD83D\uDCCD GPS non disponible';
       var brandStr = '\uD83D\uDD12 ' + settings.brandingText;
 
-      // Ombre portée
       ctx.shadowColor   = 'rgba(0,0,0,0.9)';
       ctx.shadowBlur    = 3;
       ctx.shadowOffsetX = 1;
@@ -357,13 +375,10 @@
       ctx.shadowBlur  = 0;
     }
 
-    // ─── Traitement principal (mémoire optimisée) ─────────────────
-    // Retourne une Promise<Blob> — le canvas est détruit après
+    // ─── Traitement canvas → Blob ─────────────────────────────────
     function processPhoto(file, captureTime) {
       return new Promise(function (resolve, reject) {
         loadImageFromBlob(file).then(function (img) {
-
-          // Calcul des dimensions après réduction
           var scale  = Math.min(1, settings.maxWidth / img.naturalWidth);
           var cw     = Math.round(img.naturalWidth  * scale);
           var ch     = Math.round(img.naturalHeight * scale);
@@ -373,22 +388,14 @@
           canvas.height = ch;
           var ctx    = canvas.getContext('2d');
 
-          // 1. Image
           ctx.drawImage(img, 0, 0, cw, ch);
-
-          // Libérer la référence image dès que possible
           img = null;
 
-          // 2. Overlay
           drawOverlay(ctx, cw, ch, captureTime, gpsPosition);
 
-          // 3. Exporter en Blob (toBlob est async et libère le canvas plus tôt)
           canvas.toBlob(function (blob) {
-            // Libérer le canvas immédiatement
             canvas.width  = 0;
             canvas.height = 0;
-            // ctx = null; // pas nécessaire, la référence canvas est déjà perdue
-
             if (!blob) {
               reject(new Error('toBlob a retourné null'));
               return;
@@ -400,7 +407,29 @@
       });
     }
 
-    // ─── Conversion Blob → base64 ─────────────────────────────────
+    // ─── Upload vers Cloudflare Worker ───────────────────────────
+    function uploadToWorker(blob, filename) {
+      var form = new FormData();
+      form.append('file', blob, filename);
+      form.append('filename', filename);
+
+      return fetch(settings.uploadWorkerUrl + '/upload', {
+        method: 'POST',
+        body: form,
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.text().then(function (t) {
+            throw new Error('Worker HTTP ' + res.status + ': ' + t);
+          });
+        }
+        return res.json();
+      }).then(function (data) {
+        if (!data.url) throw new Error('Pas d\'URL dans la réponse du Worker');
+        return data.url;
+      });
+    }
+
+    // ─── Fallback : Blob → base64 ─────────────────────────────────
     function blobToBase64(blob) {
       return new Promise(function (resolve, reject) {
         var reader = new FileReader();
@@ -426,30 +455,93 @@
       }
 
       var captureTime = new Date();
+      var filename    = 'photo_' + Date.now() + '.jpg';
       isProcessing = true;
       elBtnCapture.disabled = true;
+      elProcessingTxt.textContent = 'Traitement en cours…';
       elProcessing.classList.add('visible');
 
-      // Traitement canvas → blob → base64
-      // On convertit en base64 ICI (pas au submit) pour que sendSubmit soit synchrone
       processPhoto(file, captureTime).then(function (blob) {
-        return blobToBase64(blob);
-      }).then(function (base64) {
-        // Blob libéré après conversion — on ne stocke que la string base64
-        photos.push({
-          filename:       'photo_' + Date.now() + '.jpg',
-          previewBlobUrl: base64,   // réutiliser la même string pour la preview
-          base64:         base64,
-          timestamp:      captureTime.toISOString(),
-          lat:            gpsPosition ? gpsPosition.latitude  : null,
-          lon:            gpsPosition ? gpsPosition.longitude : null,
-        });
+        // Créer un blob URL temporaire pour la preview immédiate
+        var previewBlobUrl = URL.createObjectURL(blob);
 
+        var photoEntry = {
+          filename:  filename,
+          previewUrl: previewBlobUrl,
+          url:        null,    // sera rempli après upload
+          base64:     null,    // sera rempli en fallback
+          timestamp:  captureTime.toISOString(),
+          lat:        gpsPosition ? gpsPosition.latitude  : null,
+          lon:        gpsPosition ? gpsPosition.longitude : null,
+          uploading:  true,
+        };
+        photos.push(photoEntry);
+
+        // Afficher immédiatement la preview avec spinner
         isProcessing = false;
         elProcessing.classList.remove('visible');
         updateCounter();
         updateGrid();
-        sendDataToJotForm();
+
+        var useWorker = settings.uploadWorkerUrl && settings.uploadWorkerUrl.length > 0;
+
+        if (useWorker) {
+          // ── Mode Storage : upload vers Supabase via Worker ──────
+          elProcessingTxt.textContent = 'Upload en cours…';
+          elProcessing.classList.add('visible');
+
+          uploadToWorker(blob, filename).then(function (url) {
+            // Libérer le blob URL temporaire
+            URL.revokeObjectURL(previewBlobUrl);
+
+            photoEntry.url        = url;
+            photoEntry.previewUrl = url;   // utiliser l'URL Supabase comme preview
+            photoEntry.uploading  = false;
+
+            blob = null;
+            elProcessing.classList.remove('visible');
+            updateGrid();
+            sendDataToJotForm();
+
+          }).catch(function (err) {
+            console.error('[Widget] uploadToWorker error:', err);
+            // Fallback base64 si l'upload échoue
+            blobToBase64(blob).then(function (b64) {
+              URL.revokeObjectURL(previewBlobUrl);
+              photoEntry.base64     = b64;
+              photoEntry.previewUrl = b64;
+              photoEntry.uploading  = false;
+              blob = null;
+              elProcessing.classList.remove('visible');
+              updateGrid();
+              sendDataToJotForm();
+            }).catch(function () {
+              elProcessing.classList.remove('visible');
+              photos.pop();
+              updateCounter();
+              updateGrid();
+              showError('Erreur upload. Veuillez réessayer.');
+            });
+          });
+
+        } else {
+          // ── Mode base64 (fallback si pas de Worker configuré) ───
+          blobToBase64(blob).then(function (b64) {
+            URL.revokeObjectURL(previewBlobUrl);
+            photoEntry.base64     = b64;
+            photoEntry.previewUrl = b64;
+            photoEntry.uploading  = false;
+            blob = null;
+            updateGrid();
+            sendDataToJotForm();
+          }).catch(function (err) {
+            console.error('[Widget] blobToBase64 error:', err);
+            photos.pop();
+            updateCounter();
+            updateGrid();
+            showError('Erreur lors du traitement. Veuillez réessayer.');
+          });
+        }
 
       }).catch(function (err) {
         console.error('[Widget] processPhoto error:', err);
@@ -468,7 +560,6 @@
       elFileInput.click();
     });
 
-    // beforeunload est bloqué dans les iframes — stopGPS appelé depuis ready/clear
     JFCustomWidget && JFCustomWidget.subscribe && JFCustomWidget.subscribe('clear', stopGPS);
 
     // ─── Initialisation ───────────────────────────────────────────
@@ -479,6 +570,7 @@
       settings.maxWidth        = Math.max(800, Math.min(2560, parseInt(s.maxWidth, 10) || 1280));
       settings.requireGPS      = s.requireGPS === 'true' || s.requireGPS === true;
       settings.overlayPosition = s.overlayPosition === 'top' ? 'top' : 'bottom';
+      settings.uploadWorkerUrl = (s.uploadWorkerUrl || '').replace(/\/$/, '');
 
       updateCounter();
       updateGrid();
@@ -487,16 +579,27 @@
 
     // ─── Intégration JotForm ──────────────────────────────────────
     function buildValue() {
+      // Ne pas envoyer si des uploads sont encore en cours
+      var uploading = photos.some(function (p) { return p.uploading; });
+      if (uploading) return '';
       if (photos.length === 0) return '';
+
       try {
         return JSON.stringify(photos.map(function (p) {
-          return {
+          var entry = {
             filename:  p.filename,
-            base64:    p.base64 || '',
             timestamp: p.timestamp,
             lat:       p.lat,
             lon:       p.lon,
           };
+          // Mode Storage : envoyer l'URL (quelques octets)
+          // Mode fallback : envoyer le base64 (plusieurs MB)
+          if (p.url) {
+            entry.url = p.url;
+          } else {
+            entry.base64 = p.base64 || '';
+          }
+          return entry;
         }));
       } catch (e) {
         console.error('[Widget] buildValue error:', e);
@@ -521,18 +624,15 @@
             maxWidth:        JFCustomWidget.getWidgetSetting('maxWidth'),
             requireGPS:      JFCustomWidget.getWidgetSetting('requireGPS'),
             overlayPosition: JFCustomWidget.getWidgetSetting('overlayPosition'),
+            uploadWorkerUrl: JFCustomWidget.getWidgetSetting('uploadWorkerUrl'),
           });
         } catch (e) {
           init({});
         }
-        // Envoyer valeur vide initiale — JotForm stocke la dernière valeur sendData
         JFCustomWidget.sendData({ value: '' });
       });
 
-      // NE PAS s'abonner à "submit" — le SDK a son propre handler par défaut
-      // qui envoie sendSubmit({initial:true, data:false, valid:true}).
-      // Si on ajoute un 2e handler, deux sendSubmit s'envoient et JotForm bloque.
-      // JotForm lit automatiquement la dernière valeur passée via sendData.
+      // NE PAS s'abonner à "submit" — le SDK a son propre handler par défaut.
 
     } else {
       console.log('[Widget] Mode standalone');

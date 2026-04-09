@@ -53,6 +53,13 @@
         { "value": "bottom", "label": "En bas (défaut)" },
         { "value": "top",    "label": "En haut" }
       ]
+    },
+    {
+      "name": "uploadWorkerUrl",
+      "label": "URL du Worker d'upload (Supabase Storage)",
+      "type": "text",
+      "defaultValue": "",
+      "hint": "ex: https://hars-photo-upload.xxx.workers.dev — laisser vide pour fallback base64"
     }
   ]
 }

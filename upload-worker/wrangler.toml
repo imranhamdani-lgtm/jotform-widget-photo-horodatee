@@ -1,0 +1,10 @@
+name            = "hars-photo-upload"
+main            = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Après déploiement, le Worker sera accessible à :
+# https://hars-photo-upload.<votre-subdomain>.workers.dev
+#
+# Configurer les secrets (une seule fois) :
+#   wrangler secret put SUPABASE_URL
+#   wrangler secret put SUPABASE_SERVICE_KEY
