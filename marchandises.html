@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Détail marchandises — HARS Analytics</title>
+  <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      background: #fff;
+      color: #1e293b;
+      padding: 4px 0;
+      font-size: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead tr {
+      background: #f1f5f9;
+    }
+
+    th {
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 6px 6px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .col-designation { min-width: 120px; }
+    .col-qte        { width: 70px; }
+    .col-unite      { width: 100px; }
+    .col-poids      { width: 80px; }
+    .col-etat       { width: 110px; }
+
+    /* Read-only cells (données de la mission) */
+    .cell-readonly {
+      color: #475569;
+      font-size: 13px;
+      padding: 4px 6px;
+    }
+
+    /* Cells éditables par le chauffeur */
+    input[type="number"], select {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-size: 13px;
+      color: #1e293b;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="number"]:focus,
+    select:focus {
+      border-color: #7c3aed;
+    }
+
+    select { cursor: pointer; }
+
+    .etat-conforme   { color: #15803d; }
+    .etat-endommage  { color: #b45309; }
+    .etat-manquant   { color: #b91c1c; }
+    .etat-refuse     { color: #7c2d12; }
+
+    .empty {
+      padding: 20px;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    #error-msg {
+      padding: 8px 12px;
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #b91c1c;
+      margin-bottom: 8px;
+      display: none;
+    }
+    #error-msg.visible { display: block; }
+  </style>
+</head>
+<body>
+
+  <div id="error-msg"></div>
+  <div id="container"></div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    var UNITES  = ['Palette', 'Colis', 'Citerne', 'Vrac kg', 'Vrac litres', 'Pièce'];
+    var ETATS   = ['Conforme', 'Endommagé', 'Manquant', 'Refusé'];
+    var ETAT_CLASS = {
+      'Conforme':   'etat-conforme',
+      'Endommagé':  'etat-endommage',
+      'Manquant':   'etat-manquant',
+      'Refusé':     'etat-refuse',
+    };
+
+    // Lignes : initialisées depuis data.value (préremplissage JotForm)
+    // Structure : { designation, qte_commandee, unite, poids_kg, qte_livree, etat }
+    var lines = [];
+
+    var elContainer = document.getElementById('container');
+    var elError     = document.getElementById('error-msg');
+
+    function showError(msg) {
+      elError.textContent = msg;
+      elError.classList.add('visible');
+    }
+
+    function updateLine(i, field, value) {
+      lines[i][field] = value;
+      // Mettre à jour la classe CSS de l'état si besoin
+      if (field === 'etat') {
+        var selects = elContainer.querySelectorAll('select.etat-select');
+        if (selects[i]) {
+          selects[i].className = 'etat-select ' + (ETAT_CLASS[value] || '');
+        }
+      }
+      sendDataToJotForm();
+    }
+
+    function render() {
+      if (lines.length === 0) {
+        elContainer.innerHTML = '<div class="empty">Aucune marchandise — données non transmises</div>';
+        return;
+      }
+
+      var html = '<table>'
+        + '<thead><tr>'
+        + '<th class="col-designation">Désignation</th>'
+        + '<th class="col-qte">Qté cmd.</th>'
+        + '<th class="col-unite">Unité</th>'
+        + '<th class="col-poids">Poids (kg)</th>'
+        + '<th class="col-qte">Qté livrée</th>'
+        + '<th class="col-etat">État</th>'
+        + '</tr></thead>'
+        + '<tbody>';
+
+      lines.forEach(function (line, i) {
+        html += '<tr>'
+          // Désignation — lecture seule
+          + '<td><span class="cell-readonly">' + escHtml(line.designation || '—') + '</span></td>'
+          // Qté commandée — lecture seule
+          + '<td><span class="cell-readonly">' + (line.qte_commandee != null ? line.qte_commandee : '—') + '</span></td>'
+          // Unité — lecture seule
+          + '<td><span class="cell-readonly">' + escHtml(line.unite || '—') + '</span></td>'
+          // Poids — lecture seule
+          + '<td><span class="cell-readonly">' + (line.poids_kg != null ? line.poids_kg : '—') + '</span></td>'
+          // Qté livrée — éditable
+          + '<td><input type="number" min="0" step="1" data-i="' + i + '" data-field="qte_livree"'
+          + ' value="' + (line.qte_livree != null ? line.qte_livree : '') + '"'
+          + ' placeholder="0" /></td>'
+          // État — éditable
+          + '<td><select data-i="' + i + '" data-field="etat" class="etat-select ' + (ETAT_CLASS[line.etat] || '') + '">'
+          + ETATS.map(function (e) {
+              return '<option value="' + escHtml(e) + '"' + (line.etat === e ? ' selected' : '') + '>' + escHtml(e) + '</option>';
+            }).join('')
+          + '</select></td>'
+          + '</tr>';
+      });
+
+      html += '</tbody></table>';
+      elContainer.innerHTML = html;
+
+      // Event listeners
+      elContainer.querySelectorAll('input[data-field]').forEach(function (el) {
+        el.addEventListener('change', function () {
+          var i = parseInt(el.getAttribute('data-i'), 10);
+          var f = el.getAttribute('data-field');
+          updateLine(i, f, el.value !== '' ? Number(el.value) : null);
+        });
+      });
+
+      elContainer.querySelectorAll('select[data-field]').forEach(function (el) {
+        el.addEventListener('change', function () {
+          var i = parseInt(el.getAttribute('data-i'), 10);
+          var f = el.getAttribute('data-field');
+          updateLine(i, f, el.value);
+          // MAJ classe CSS
+          el.className = 'etat-select ' + (ETAT_CLASS[el.value] || '');
+        });
+      });
+    }
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ─── JotForm ──────────────────────────────────────────────────
+    function buildValue() {
+      if (lines.length === 0) return '';
+      try {
+        return JSON.stringify(lines.map(function (l) {
+          return {
+            designation:   l.designation,
+            qte_commandee: l.qte_commandee,
+            qte_livree:    l.qte_livree,
+            unite:         l.unite,
+            poids_kg:      l.poids_kg,
+            etat:          l.etat,
+          };
+        }));
+      } catch (e) { return ''; }
+    }
+
+    function sendDataToJotForm() {
+      try { JFCustomWidget.sendData({ value: buildValue() }); } catch (e) {}
+    }
+
+    function initFromValue(rawValue) {
+      if (!rawValue) { render(); sendDataToJotForm(); return; }
+      try {
+        var parsed = JSON.parse(rawValue);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          render(); sendDataToJotForm(); return;
+        }
+        lines = parsed.map(function (item) {
+          return {
+            designation:   item.designation   || '',
+            qte_commandee: item.qte_commandee != null ? item.qte_commandee : null,
+            qte_livree:    item.qte_livree    != null ? item.qte_livree    : item.qte_commandee != null ? item.qte_commandee : null,
+            unite:         item.unite         || 'Palette',
+            poids_kg:      item.poids_kg      != null ? item.poids_kg      : null,
+            etat:          ETATS.indexOf(item.etat) >= 0 ? item.etat : 'Conforme',
+          };
+        });
+        render();
+        sendDataToJotForm();
+      } catch (e) {
+        showError('Erreur lecture données marchandises : ' + e.message);
+        render();
+      }
+    }
+
+    if (typeof JFCustomWidget !== 'undefined') {
+      JFCustomWidget.subscribe('ready', function (data) {
+        // data.value contient la valeur préremplie via URL (?q26_widget_...=JSON)
+        initFromValue(data && data.value ? data.value : '');
+      });
+    } else {
+      // Mode standalone — test avec données d'exemple
+      console.log('[Widget Marchandises] Mode standalone');
+      initFromValue(JSON.stringify([
+        { designation: 'Palettes bois', qte_commandee: 10, qte_livree: 10, unite: 'Palette', poids_kg: 250, etat: 'Conforme' },
+        { designation: 'Colis fragiles', qte_commandee: 5, qte_livree: 4, unite: 'Colis', poids_kg: 30, etat: 'Endommagé' },
+      ]));
+    }
+
+  }());
+  </script>
+</body>
+</html>
