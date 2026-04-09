@@ -613,7 +613,9 @@
       } catch (e) { /* hors contexte JotForm */ }
     }
 
-    if (typeof JFCustomWidget !== 'undefined') {
+    var isInJotFormIframe = typeof JFCustomWidget !== 'undefined' && window !== window.parent;
+
+    if (isInJotFormIframe) {
 
       JFCustomWidget.subscribe('ready', function () {
         try {
@@ -635,7 +637,7 @@
       // NE PAS s'abonner à "submit" — le SDK a son propre handler par défaut.
 
     } else {
-      console.log('[Widget] Mode standalone');
+      console.log('[Widget Photo] Mode standalone');
       init({});
     }
 

@@ -261,13 +261,17 @@
       }
     }
 
-    if (typeof JFCustomWidget !== 'undefined') {
+    // Le SDK JotFormCustomWidget définit JFCustomWidget même en dehors de JotForm.
+    // On détecte le contexte réel via window !== window.parent (iframe JotForm).
+    var isInJotFormIframe = typeof JFCustomWidget !== 'undefined' && window !== window.parent;
+
+    if (isInJotFormIframe) {
       JFCustomWidget.subscribe('ready', function (data) {
         // data.value contient la valeur préremplie via URL (?q26_widget_...=JSON)
         initFromValue(data && data.value ? data.value : '');
       });
     } else {
-      // Mode standalone — test avec données d'exemple
+      // Mode standalone / prévisualisation — données d'exemple
       console.log('[Widget Marchandises] Mode standalone');
       initFromValue(JSON.stringify([
         { designation: 'Palettes bois', qte_commandee: 10, qte_livree: 10, unite: 'Palette', poids_kg: 250, etat: 'Conforme' },
